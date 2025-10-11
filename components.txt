@@ -1,0 +1,23 @@
+ESP32 MCU - Dzadam has this
+    - Water level reading
+    - Moisture level reading
+    - Pump signaling
+    - Webserver operating
+
+Power Supply Module - Dzadam has this (multiple)
+    - Voltage regulation
+    - Multi-device powering
+    - Voltage can be obtained either from wall outlet, powerbank, direct batteries, ...
+
+Moisture Sensor - Dzadam has this
+
+Water pump - need to buy (multiple times - expecting wearing out)
+
+Proximity sensor (for water level measurements ?) - Dzadam has this
+
+Other primitives (maybe not necessary but could be usefull)
+    - jumper wires - dzadam has this
+    - resistors - dzadam has this
+    - LEDs - dzadam has this
+
+Breadboard for prototyping - Dzadam has this (but kinda small )
