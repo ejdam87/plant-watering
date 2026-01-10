@@ -2,6 +2,7 @@
 #include <WebServer.h>
 
 #include "webpage.hpp"
+#include "credentials.hpp"
 
 // --- Water Pump
 // Pins (L293D) - motor driver
@@ -10,8 +11,11 @@
 #define IN_2_PIN 26
 
 // pump control
-bool pump_turned_on = false;
 int pump_speed = 255; // 0-255
+bool pump_turned_on = false;
+bool pump_cycle_active = false;
+unsigned long pump_cycle_start = 0;
+unsigned long pump_cycle_duration = 0; // ms
 
 void pump_turn_on()
 {
@@ -37,28 +41,14 @@ void set_pump_speed(int speed)
 
 // Humidity Sensor (analog pin)
 #define HUMIDITY_PIN 35
+const int raw_dry = 4095; // sensor on air
+const int raw_wet = 1400; // sensor in water
+float smoothed_humidity = 0;
+float alpha = 0.7; // smoothing factor (0.0–1.0)
 
 // --- Water Level Sensor
 #define WATER_LEVEL_PIN 34
-unsigned long water_level_trigger_time = 0;
-volatile bool water_level_detected = false;
-
-void IRAM_ATTR handle_water_level()
-{
-  Serial.println("Water Level Detected!");
-  water_level_trigger_time = millis();
-  water_level_detected = true;
-}
 // ---
-
-// Web server
-const char* HOTSTOP_SSID = "Dzadam";
-const char* HOTSPOT_PASSWORD = "mamradpepe";
-
-
-const char* FACULTY_SSID = "PV284";
-const char* FACULTY_PASSWORD = "Che6GoozIeTe";
-
 
 WebServer server(80);
 
@@ -71,15 +61,14 @@ void handle_root()
 void handle_get_sensors()
 {
   int humidity_value = analogRead(HUMIDITY_PIN);
-  Serial.println(humidity_value);
-
+  float humidity_percent = (float)(raw_dry - humidity_value) / (raw_dry - raw_wet) * 100.0;
+  humidity_percent = constrain(humidity_percent, 0, 100);
+  smoothed_humidity = smoothed_humidity * (1 - alpha) + humidity_percent * alpha;
   bool water_level_state = digitalRead(WATER_LEVEL_PIN);
-  unsigned long time_since_trigger = millis() - water_level_trigger_time;
 
   String json = "{";
-  json += "\"humidity\":" + String(humidity_value) + ",";
-  json += "\"water_level\":" + String(water_level_state ? "true" : "false") + ",";
-  json += "\"water_level_time\":" + String(time_since_trigger);
+  json += "\"humidity\":" + String(smoothed_humidity) + ",";
+  json += "\"water_level\":" + String(water_level_state ? "true" : "false");
   json += "}";
 
   server.send(200, "application/json", json);
@@ -89,53 +78,49 @@ void handle_get_sensors()
 void handle_get_pump()
 {
   String json = "{";
-  json += "\"state\":" + (pump_turned_on ? String("true") : String("false")) + ",";
+  json += "\"running\":" + (pump_turned_on ? String("true") : String("false")) + ",";
   json += "\"speed\":" + String(pump_speed);
   json += "}";
-  
+
   server.send(200, "application/json", json);
 }
 
-// API endpoint to control pump
-void handle_post_pump()
+// API endpoint to start a pump cycle
+void handle_pump_cycle()
 {
-  Serial.println("Pump control request received");
-  
-  if (server.hasArg("state"))
+  if (!server.hasArg("duration"))
   {
-    String stateStr = server.arg("state");
-    Serial.print("State argument: ");
-    Serial.println(stateStr);
-    
-    bool state = (stateStr == "true" || stateStr == "1");
-    
-    Serial.print("Setting motor to: ");
-    Serial.println(state ? "ON" : "OFF");
-    
-    if (state)
-    {
-      pump_turn_on();
-      Serial.println("Pump turned ON");
-    }
-    else
-    {
-      pump_turn_off();
-      Serial.println("Pump turned OFF");
-    }
+    server.send(400, "application/json",
+                "{\"error\":\"missing duration\"}");
+    return;
   }
-  else
+
+  int duration_sec = server.arg("duration").toInt();
+  if (duration_sec <= 0)
   {
-    Serial.println("No state argument provided");
+    server.send(400, "application/json",
+                "{\"error\":\"invalid duration\"}");
+    return;
   }
-  
+
+  if (pump_cycle_active)
+  {
+    server.send(409, "application/json",
+                "{\"error\":\"pump already running\"}");
+    return;
+  }
+
+  pump_cycle_duration = (unsigned long)duration_sec * 1000UL;
+  pump_cycle_start = millis();
+  pump_cycle_active = true;
+
+  pump_turn_on();
+
   String json = "{";
-  json += "\"state\":" + (pump_turned_on ? String("true") : String("false")) + ",";
-  json += "\"speed\":" + String(pump_speed);
+  json += "\"status\":\"started\",";
+  json += "\"duration\":" + String(duration_sec);
   json += "}";
-  
-  Serial.print("Sending response: ");
-  Serial.println(json);
-  
+
   server.send(200, "application/json", json);
 }
 
@@ -147,11 +132,11 @@ void handle_post_pump_speed()
     int speed = server.arg("speed").toInt();
     set_pump_speed(speed);
   }
-  
+
   String json = "{";
   json += "\"speed\":" + String(pump_speed);
   json += "}";
-  
+
   server.send(200, "application/json", json);
 }
 
@@ -159,6 +144,7 @@ void handle_post_pump_speed()
 void setup()
 {
   Serial.begin(115200);
+
   // Pump Setup
   pinMode(ENABLE_PIN, OUTPUT);
   pinMode(IN_1_PIN, OUTPUT);
@@ -173,13 +159,13 @@ void setup()
 
   // Water Level setup
   pinMode(WATER_LEVEL_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(WATER_LEVEL_PIN), handle_water_level, CHANGE);
 
   // Web server setup
-  WiFi.begin(FACULTY_SSID, FACULTY_PASSWORD);
+  WiFi.begin(BRNO_SSID, BRNO_PASSWORD);
 
   Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(500);
     Serial.print(".");
   }
@@ -191,7 +177,7 @@ void setup()
   server.on("/", handle_root);
   server.on("/api/sensors", HTTP_GET, handle_get_sensors);
   server.on("/api/pump", HTTP_GET, handle_get_pump);
-  server.on("/api/pump", HTTP_POST, handle_post_pump);
+  server.on("/api/pump", HTTP_POST, handle_pump_cycle);
   server.on("/api/pump/speed", HTTP_POST, handle_post_pump_speed);
 
   server.begin();
@@ -202,5 +188,16 @@ void setup()
 void loop()
 {
   server.handleClient();
+
+  if (pump_cycle_active)
+  {
+    if (millis() - pump_cycle_start >= pump_cycle_duration)
+    {
+      pump_turn_off();
+      pump_cycle_active = false;
+      Serial.println("Pump cycle completed");
+    }
+  }
+
   delay(1);
 }
