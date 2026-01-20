@@ -72,6 +72,11 @@ const char index_html[] PROGMEM = R"rawliteral(
         padding: 8px;
         font-size: 16px;
       }
+      .hint {
+        color: #666;
+        font-size: 13px;
+        margin-top: 6px;
+      }
       .status-indicator {
         display: inline-block;
         width: 12px;
@@ -114,6 +119,24 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
 
         <div class="input-group">
+          <label>
+            Auto-water when humidity below:
+            <span id="thresholdValue">20</span>%
+          </label>
+          <input type="range"
+                id="thresholdDial"
+                min="0" max="100" value="20"
+                oninput="updateThresholdPreview(this.value)">
+          <div class="hint">
+            When humidity drops below this value, the pump can run automatically.
+          </div>
+        </div>
+
+        <button id="setThresholdBtn" onclick="applyThreshold()">
+          Set Humidity Threshold
+        </button>
+
+        <div class="input-group">
           <label>Duration (seconds)</label>
           <input type="number" id="durationInput" min="1" value="5">
         </div>
@@ -142,9 +165,26 @@ const char index_html[] PROGMEM = R"rawliteral(
       let pumpRunning = false;
       let expectedFinishTimer = null;
       const FINISH_MARGIN_MS = 1000;
+      let lastKnownThreshold = 20;
 
       setInterval(updateSensors, 1000);
+      setThresholdUI(lastKnownThreshold);
+      loadThreshold();
       updateSensors();
+
+      function loadThreshold() {
+        fetch('/api/pump/threshold')
+          .then(r => r.json())
+          .then(d => {
+            if (typeof d.threshold === 'number') {
+              lastKnownThreshold = d.threshold;
+              setThresholdUI(d.threshold);
+            }
+          })
+          .catch(() => {
+            // Keep defaults if settings fetch fails
+          });
+      }
 
       function updateSensors() {
         fetch('/api/sensors')
@@ -153,6 +193,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById('humidity').textContent = parseFloat(d.humidity).toFixed(1) + '%';
             document.getElementById('waterLevel').textContent =
               d.water_level ? 'DETECTED' : 'NOT DETECTED';
+
             document.getElementById('lastUpdate').textContent =
               'Last update: ' + new Date().toLocaleTimeString();
           });
@@ -223,6 +264,33 @@ const char index_html[] PROGMEM = R"rawliteral(
 
       function updateSpeed(value) {
         document.getElementById('speedValue').textContent = value;
+      }
+
+      function updateThresholdPreview(value) {
+        document.getElementById('thresholdValue').textContent = value;
+      }
+
+      function setThresholdUI(value) {
+        const v = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
+        document.getElementById('thresholdDial').value = v;
+        document.getElementById('thresholdValue').textContent = v;
+      }
+
+      function applyThreshold() {
+        const threshold = document.getElementById('thresholdDial').value;
+
+        fetch('/api/pump/threshold?threshold=' + threshold, { method: 'POST' })
+          .then(r => {
+            if (!r.ok) throw new Error('Threshold update failed');
+            return r.json();
+          })
+          .then(d => {
+            if (typeof d.threshold === 'number') {
+              lastKnownThreshold = d.threshold;
+              setThresholdUI(d.threshold);
+            }
+          })
+          .catch(() => alert('Threshold update failed'));
       }
 
       function applySpeed() {

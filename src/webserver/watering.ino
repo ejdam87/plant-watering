@@ -1,14 +1,17 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ESPmDNS.h>
 
 #include "webpage.hpp"
 #include "credentials.hpp"
 
+static const char* HOSTNAME = "plant-watering";
+
 // --- Water Pump
 // Pins (L293D) - motor driver
-#define ENABLE_PIN 25
-#define IN_1_PIN 33
-#define IN_2_PIN 26
+#define ENABLE_PIN 45
+#define IN_1_PIN 48
+#define IN_2_PIN 47
 
 // pump control
 int pump_speed = 255; // 0-255
@@ -16,6 +19,11 @@ bool pump_turned_on = false;
 bool pump_cycle_active = false;
 unsigned long pump_cycle_start = 0;
 unsigned long pump_cycle_duration = 0; // ms
+bool pump_turned_on_auto = false;
+bool pump_cycle_active_auto = false;
+unsigned long pump_cycle_start_auto = 0;
+unsigned long pump_cycle_duration_auto = 0; // ms
+unsigned long pump_cycle_last_watering = 0;
 
 void pump_turn_on()
 {
@@ -40,14 +48,15 @@ void set_pump_speed(int speed)
 
 
 // Humidity Sensor (analog pin)
-#define HUMIDITY_PIN 35
+#define HUMIDITY_PIN 5
 const int raw_dry = 4095; // sensor on air
 const int raw_wet = 1400; // sensor in water
 float smoothed_humidity = 0;
 float alpha = 0.7; // smoothing factor (0.0–1.0)
+int humidity_threshold = 20;
 
 // --- Water Level Sensor
-#define WATER_LEVEL_PIN 34
+#define WATER_LEVEL_PIN 16
 // ---
 
 WebServer server(80);
@@ -140,7 +149,31 @@ void handle_post_pump_speed()
   server.send(200, "application/json", json);
 }
 
+void handle_get_humidity_threshold()
+{
+  String json = "{";
+  json += "\"threshold\":" + String(humidity_threshold);
+  json += "}";
+  server.send(200, "application/json", json);
+}
 
+void handle_post_humidity_threshold()
+{
+  if (!server.hasArg("threshold"))
+  {
+    server.send(400, "application/json",
+                "{\"error\":\"missing threshold\"}");
+    return;
+  }
+
+  int threshold = server.arg("threshold").toInt();
+  humidity_threshold = constrain(threshold, 0, 100);
+
+  String json = "{";
+  json += "\"threshold\":" + String(humidity_threshold);
+  json += "}";
+  server.send(200, "application/json", json);
+}
 void setup()
 {
   Serial.begin(115200);
@@ -161,6 +194,7 @@ void setup()
   pinMode(WATER_LEVEL_PIN, INPUT);
 
   // Web server setup
+  WiFi.setHostname(HOSTNAME);
   WiFi.begin(BRNO_SSID, BRNO_PASSWORD);
 
   Serial.print("Connecting to WiFi");
@@ -174,11 +208,26 @@ void setup()
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
+  // server accessible on http://plant-watering.local/
+  if (!MDNS.begin(HOSTNAME))
+  {
+    Serial.println("mDNS setup failed");
+  }
+  else
+  {
+    MDNS.addService("http", "tcp", 80);
+    Serial.print("mDNS name: http://");
+    Serial.print(HOSTNAME);
+    Serial.println(".local/");
+  }
+
   server.on("/", handle_root);
   server.on("/api/sensors", HTTP_GET, handle_get_sensors);
   server.on("/api/pump", HTTP_GET, handle_get_pump);
   server.on("/api/pump", HTTP_POST, handle_pump_cycle);
   server.on("/api/pump/speed", HTTP_POST, handle_post_pump_speed);
+  server.on("/api/pump/threshold", HTTP_GET, handle_get_humidity_threshold);
+  server.on("/api/pump/threshold", HTTP_POST, handle_post_humidity_threshold);
 
   server.begin();
   Serial.println("Server started");
@@ -189,15 +238,29 @@ void loop()
 {
   server.handleClient();
 
-  if (pump_cycle_active)
+  if (pump_cycle_active && millis() - pump_cycle_start >= pump_cycle_duration)
   {
-    if (millis() - pump_cycle_start >= pump_cycle_duration)
-    {
-      pump_turn_off();
-      pump_cycle_active = false;
-      Serial.println("Pump cycle completed");
-    }
+    pump_turn_off();
+    pump_cycle_active = false;
+    Serial.println("Manual watering cycle completed");
   }
 
+  if (smoothed_humidity < humidity_threshold && millis() - pump_cycle_last_watering > 10000) // 30 minutes
+  {
+    Serial.println("Automatic watering commenced!");
+    pump_cycle_duration_auto = 5000UL;
+    pump_cycle_start_auto = millis();
+    pump_cycle_active_auto = true;
+    pump_turn_on();
+    pump_cycle_last_watering = millis();
+  }
+
+  if (pump_cycle_active_auto && millis() - pump_cycle_start_auto >= pump_cycle_duration_auto)
+  {
+    Serial.println("Turning auto watering off");
+    pump_turn_off();
+    pump_cycle_active_auto = false;
+    Serial.println("Automatic watering cycle completed");
+  }
   delay(1);
 }
