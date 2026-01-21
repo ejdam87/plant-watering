@@ -9,9 +9,9 @@ static const char* HOSTNAME = "plant-watering";
 
 // --- Water Pump
 // Pins (L293D) - motor driver
-#define ENABLE_PIN 45
-#define IN_1_PIN 48
-#define IN_2_PIN 47
+#define ENABLE_PIN 25 //45
+#define IN_1_PIN 33 //48
+#define IN_2_PIN 26 //47
 
 // pump control
 int pump_speed = 255; // 0-255
@@ -48,7 +48,7 @@ void set_pump_speed(int speed)
 
 
 // Humidity Sensor (analog pin)
-#define HUMIDITY_PIN 5
+#define HUMIDITY_PIN 35 //5
 const int raw_dry = 4095; // sensor on air
 const int raw_wet = 1400; // sensor in water
 float smoothed_humidity = 0;
@@ -56,7 +56,7 @@ float alpha = 0.7; // smoothing factor (0.0–1.0)
 int humidity_threshold = 20;
 
 // --- Water Level Sensor
-#define WATER_LEVEL_PIN 16
+#define WATER_LEVEL_PIN 14 //16
 // ---
 
 WebServer server(80);
