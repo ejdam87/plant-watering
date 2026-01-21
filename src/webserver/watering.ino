@@ -245,7 +245,7 @@ void loop()
     Serial.println("Manual watering cycle completed");
   }
 
-  if (smoothed_humidity < humidity_threshold && millis() - pump_cycle_last_watering > 10000) // 30 minutes
+  if (smoothed_humidity < humidity_threshold && millis() - pump_cycle_last_watering > 1800000) // 30 minutes
   {
     Serial.println("Automatic watering commenced!");
     pump_cycle_duration_auto = 5000UL;
