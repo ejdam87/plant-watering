@@ -56,7 +56,7 @@ float alpha = 0.7; // smoothing factor (0.0–1.0)
 int humidity_threshold = 20;
 
 // --- Water Level Sensor
-#define WATER_LEVEL_PIN 14 //16
+#define WATER_LEVEL_PIN 34 //16
 // ---
 
 WebServer server(80);
