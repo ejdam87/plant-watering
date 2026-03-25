@@ -17,11 +17,11 @@ We use Arduino Core libraries:
 
 ## Scheme
 
-[Scheme](scheme.png)
+![Scheme](scheme.png)
 
 ## UI
 
-[UI](ui.jpg)
+![UI](ui.jpg)
 
 
 ## Functionality
