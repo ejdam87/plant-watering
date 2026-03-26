@@ -23,6 +23,10 @@ We use Arduino Core libraries:
 
 ![UI](ui.jpg)
 
+## Physical look
+
+![Physical](physical.jpg)
+
 
 ## Functionality
 
